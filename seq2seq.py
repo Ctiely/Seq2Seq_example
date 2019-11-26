@@ -40,7 +40,7 @@ def generator(inputs, targets, inputs_length, targets_length, batch_size):
         batch_inputs = inputs[span_index, : batch_inputs_length.max()]
         
         batch_targets_length = targets_length[span_index]
-        batch_targets = inputs[span_index, : batch_targets_length.max()]
+        batch_targets = targets[span_index, : batch_targets_length.max()]
         batch_datas.append((batch_inputs, batch_targets, batch_inputs_length, batch_targets_length))
     return batch_datas
 
@@ -143,7 +143,8 @@ class Seq2SeqModel(object):
                 decoder_inputs = tf.concat(
                     [tf.fill([batch_size, 1], self.vocab_size - 2), ending], 1
                     )
-                self.decoder_inputs = tf.nn.embedding_lookup(embedding, decoder_inputs)
+                with tf.device("/cpu:0"):
+                    self.decoder_inputs = tf.nn.embedding_lookup(embedding, decoder_inputs)
                 helper = tf.contrib.seq2seq.TrainingHelper(
                     inputs=self.decoder_inputs,
                     sequence_length=self.targets_length
@@ -363,9 +364,11 @@ if __name__ == "__main__":
     seq2seq_ = Seq2SeqModel(vocab_size, hidden_size, beam_search=3)
     index = np.random.choice(test_index, size=3, replace=False)
     sample_inputs = idx_q[index]
+    sample_targets = idx_a[index]
     sample_inputs_length = inputs_length[index]
     preds = seq2seq_.inference(sample_inputs, sample_inputs_length, 20)
     for i in range(3):
         print(f'input: {" ".join([idx2word[num] for num in sample_inputs[i] if num != 0])}')
-        print(f'output: {" ".join([idx2word[num] for num in preds[i, :, 0] if num != 0])}')
+        print(f'target: {" ".join([idx2word[num] for num in sample_targets[i] if num != 0])}')
+        print(f'pred: {" ".join([idx2word[num] for num in preds[i, :, 0] if num != 0])}\n')
     '''
