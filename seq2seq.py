@@ -341,11 +341,11 @@ if __name__ == "__main__":
     test_targets_length = targets_length[test_index]
     
     eval_datas = generator(
-            test_inputs, test_targets, test_inputs_length, test_targets_length, 64
-            )
+        test_inputs, test_targets, test_inputs_length, test_targets_length, 64
+        )
     
     total_updates = 100
-    save_model_freq = 2
+    save_model_freq = 5
     
     vocab_size = src_vocab_size
     seq2seq = Seq2SeqModel(vocab_size, hidden_size, beam_search=1)
@@ -358,6 +358,8 @@ if __name__ == "__main__":
                 min(0.9, epoch / total_updates))
         print(f'>>>>Train epoch: {epoch}, Loss: {loss}')
         if epoch % save_model_freq == 0:
+            loss = seq2seq.evaluate(eval_datas)
+            print(f'>>>>Test epoch: {epoch}, Loss: {loss}')
             seq2seq.save_model()
         
     '''
