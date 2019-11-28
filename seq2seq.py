@@ -49,6 +49,7 @@ class Seq2SeqModel(object):
     def __init__(self, vocab_size, hidden_size,
                  batch_size=64,
                  beam_search=3,
+                 keep_prob=0.5,
                  max_grad_norm=1.0,
                  embedding_size=100,
                  lr_schedule=lambda x: max(0.05, (1 - x)) * 2.5e-4,
@@ -58,6 +59,7 @@ class Seq2SeqModel(object):
         
         self.beam_search = beam_search
         self.embedding_size = embedding_size
+        self.keep_prob = keep_prob
         self.max_grad_norm = max_grad_norm
         self.training_batchsize = batch_size
         self.lr_schedule = lr_schedule
@@ -77,8 +79,9 @@ class Seq2SeqModel(object):
         self.inputs_length = tf.placeholder(tf.int32, [None], name='inputs_length')
         self.targets = tf.placeholder(tf.int32, [None, None], name='targets')
         self.targets_length = tf.placeholder(tf.int32, [None], name='targets_length')
+        self.keep_prob_placeholder = tf.placeholder(tf.float32, name='keep_prob_placeholder')
         self.max_target_length = tf.reduce_max(self.targets_length, name='max_target_length')
-
+        
         batch_size = tf.shape(self.inputs)[0]
         with tf.device("/cpu:0"):
             embedding = tf.get_variable(
@@ -89,9 +92,17 @@ class Seq2SeqModel(object):
             with tf.device("/cpu:0"):
                 self.encoder_inputs = tf.nn.embedding_lookup(embedding, self.inputs)
             
+            cell_fw = tf.contrib.rnn.GRUCell(self.hidden_size)
+            cell_fw = tf.contrib.rnn.DropoutWrapper(
+                cell_fw, output_keep_prob=self.keep_prob_placeholder
+                )
+            cell_bw = tf.contrib.rnn.GRUCell(self.hidden_size)
+            cell_bw = tf.contrib.rnn.DropoutWrapper(
+                cell_bw, output_keep_prob=self.keep_prob_placeholder
+                )
             ((encoder_fw_outputs, encoder_bw_outputs), (encoder_fw_final_state, encoder_bw_final_state)) = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=tf.nn.rnn_cell.GRUCell(self.hidden_size),
-                cell_bw=tf.nn.rnn_cell.GRUCell(self.hidden_size),
+                cell_fw=cell_fw,
+                cell_bw=cell_bw,
                 inputs=self.encoder_inputs,
                 sequence_length=self.inputs_length,
                 dtype=tf.float32
@@ -100,7 +111,10 @@ class Seq2SeqModel(object):
             self.encoder_outputs = encoder_fw_outputs + encoder_bw_outputs
         
         with tf.variable_scope('decoder'):
-            decoder_cell = tf.nn.rnn_cell.GRUCell(self.hidden_size)
+            decoder_cell = tf.contrib.rnn.GRUCell(self.hidden_size)
+            decoder_cell = tf.contrib.rnn.DropoutWrapper(
+                decoder_cell, output_keep_prob=self.keep_prob_placeholder
+                )
             
             if self.beam_search > 1: # inference
                 start_tokens = tf.ones([batch_size], dtype=tf.int32, name='start_tokens') * (self.vocab_size - 2)
@@ -240,6 +254,7 @@ class Seq2SeqModel(object):
                 self.targets: mini_targets,
                 self.inputs_length: mini_inputs_length,
                 self.targets_length: mini_targets_length,
+                self.keep_prob_placeholder: self.keep_prob,
                 self.moved_lr: self.lr_schedule(update_ratio)
                 }
 
@@ -264,7 +279,8 @@ class Seq2SeqModel(object):
                 self.inputs: mini_inputs,
                 self.targets: mini_targets,
                 self.inputs_length: mini_inputs_length,
-                self.targets_length: mini_targets_length
+                self.targets_length: mini_targets_length,
+                self.keep_prob_placeholder: 1.0
                 }
 
             cur_loss = self.sess.run(self.total_loss, feed_dict=fd)
@@ -276,7 +292,8 @@ class Seq2SeqModel(object):
         fd = {
             self.inputs: inputs,
             self.inputs_length: inputs_length,
-            self.targets_length: [max_length] * len(inputs)
+            self.targets_length: [max_length] * len(inputs),
+            self.keep_prob_placeholder: 1.0
             }
         preds = self.sess.run([self.preds], feed_dict=fd)[0]
         return preds
